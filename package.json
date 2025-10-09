@@ -7,7 +7,7 @@
     "compile": "hardhat compile",
     "copy": "copyfiles -f artifacts/contracts/**/*.json contracts/abi/",
     "copy-paymaster": "copyfiles -f artifacts/contracts/SignatureVerifyingPaymasterV07.sol/SignatureVerifyingPaymasterV07.json contracts/abi/",
-    "start": "tsx src/index.ts"
+    "start": "ts-node src/index.ts"
   },
   "dependencies": {
     "@account-abstraction/contracts": "0.7.0",

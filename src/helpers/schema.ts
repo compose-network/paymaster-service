@@ -87,7 +87,7 @@ const userOperationSchemaPaymasterV6 = z
 		return val;
 	});
 
-const userOperationSchemaPaymasterV7 = z
+const userOperationSchemaPaymasterV8 = z
 	.object({
 		sender: addressSchema,
 		nonce: hexNumberSchema,
@@ -145,12 +145,12 @@ export const jsonRpcSchema = z
 	.strict();
 
 export const pmSponsorUserOperationParamsSchema = z.tuple([
-	z.union([userOperationSchemaPaymasterV6, userOperationSchemaPaymasterV7]),
+	z.union([userOperationSchemaPaymasterV6, userOperationSchemaPaymasterV8]),
 	addressSchema,
 ]);
 
 export const ethEstimateUserOperationGasParamsSchema = z.tuple([
-	z.union([userOperationSchemaPaymasterV6, userOperationSchemaPaymasterV7]),
+	z.union([userOperationSchemaPaymasterV6, userOperationSchemaPaymasterV8]),
 	addressSchema,
 ]);
 
@@ -183,7 +183,7 @@ const eip7677UserOperationSchemaV6 = z
 		return val;
 	});
 
-const eip7677UserOperationSchemaV7 = z
+const eip7677UserOperationSchemaV8 = z
 	.object({
 		sender: addressSchema,
 		nonce: hexNumberSchema,
@@ -231,7 +231,7 @@ const eip7677UserOperationSchemaV7 = z
 
 const eip7677UserOperationSchema = z.union([
 	eip7677UserOperationSchemaV6,
-	eip7677UserOperationSchemaV7,
+	eip7677UserOperationSchemaV8,
 ]);
 
 export const pmGetPaymasterData = z
@@ -262,6 +262,6 @@ export const pmGetPaymasterStubDataParamsSchema = z
 		return [val[0], val[1], val[2], val[3] ?? null] as const;
 	});
 
-export type UserOperationV7 = zodInfer<typeof userOperationSchemaPaymasterV7>;
+export type UserOperationV8 = zodInfer<typeof userOperationSchemaPaymasterV8>;
 export type UserOperationV6 = zodInfer<typeof userOperationSchemaPaymasterV6>;
 export type JsonRpcSchema = zodInfer<typeof jsonRpcSchema>;
