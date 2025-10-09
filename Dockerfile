@@ -26,8 +26,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --omit=dev
+# Install all dependencies (including dev dependencies needed for ts-node)
+RUN npm ci
 
 # Copy built artifacts from builder
 COPY --from=builder /app/contracts/abi ./contracts/abi
