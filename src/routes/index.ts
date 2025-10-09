@@ -10,21 +10,26 @@ import { ENTRYPOINT_ADDRESS_V07 } from "permissionless/utils";
 import { createPimlicoBundlerClient } from "permissionless/clients/pimlico";
 import { Address, getContract, http } from "viem";
 import { getDeployerWalletClient, getChain, getTrustedSignerWalletClient, getRPCUrl, getBundlerUrl, isChainSupported } from "../helpers/utils";
-import {PAYMASTER_ABI as PaymasterAbi} from "../helpers/abi";
+import { abi as SBC_PAYMASTER_V07_ABI } from "../../contracts/abi/SignatureVerifyingPaymasterV07.json";
 import { createSbcRpcHandler } from "../relay";
 const Sentry = require("@sentry/node");
+
 interface IQueryString {
   name: string;
 }
+
 interface CustomRouteGenericQuery {
   Querystring: IQueryString;
 }
+
 interface IParams {
   chain: string;
 }
+
 interface CustomRouteGenericParam {
   Params: IParams;
 }
+
 const setupHandler = async (chain: string) => {
   const rpcUrl = getRPCUrl(chain);
   if (!rpcUrl) {
@@ -34,16 +39,6 @@ const setupHandler = async (chain: string) => {
   }
 
   const bundlerUrl = getBundlerUrl(chain);
-  let altoBundlerV07;
-  if (bundlerUrl) {
-    altoBundlerV07 = createPimlicoBundlerClient({
-      chain: getChain(chain),
-      transport: http(bundlerUrl),
-      entryPoint: ENTRYPOINT_ADDRESS_V07,
-    });
-  } else {
-    altoBundlerV07 = null; // or undefined
-  }
 
   try {
     const walletClient = getDeployerWalletClient(chain);
@@ -56,6 +51,7 @@ const setupHandler = async (chain: string) => {
 
     const owner = walletClient.account.address;
     console.log(`Deployer/Owner address: ${owner}`);
+
     const trustedSignerWalletClient = getTrustedSignerWalletClient(chain);
 
     if (!trustedSignerWalletClient) {
@@ -66,6 +62,7 @@ const setupHandler = async (chain: string) => {
 
     const trustedSigner = trustedSignerWalletClient.account.address;
     console.log(`Trusted signer address: ${trustedSigner}`);
+
     const paymasterAddress = process.env.PROXY_ADDRESS as Address;
     console.log(`Using paymaster at address: ${paymasterAddress}`);
 
@@ -74,11 +71,13 @@ const setupHandler = async (chain: string) => {
       Sentry.captureException(error);
       throw error;
     }
+
     const paymasterContract = getContract({
       address: paymasterAddress,
-      abi: PaymasterAbi,
+      abi: SBC_PAYMASTER_V07_ABI,
       client: walletClient,
     });
+
     let version;
     try {
       //version = await paymasterContract.read.VERSION();
@@ -87,11 +86,16 @@ const setupHandler = async (chain: string) => {
       Sentry.captureMessage(errorMessage, "error");
       throw new Error(errorMessage);
     }
-    const altoBundlerV07 = createPimlicoBundlerClient({
-      chain: getChain(chain),
-      transport: http(bundlerUrl),
-      entryPoint: ENTRYPOINT_ADDRESS_V07,
-    });
+
+    let altoBundlerV07;
+    if (bundlerUrl) {
+      altoBundlerV07 = createPimlicoBundlerClient({
+        chain: getChain(chain),
+        transport: http(bundlerUrl),
+        entryPoint: ENTRYPOINT_ADDRESS_V07,
+      });
+    }
+
     const rpcHandler = createSbcRpcHandler(
         altoBundlerV07,
         paymasterContract,
@@ -106,17 +110,21 @@ const setupHandler = async (chain: string) => {
     throw error;
   }
 };
+
 const routes: FastifyPluginAsync = async (server) => {
   server.register(cors, {
     origin: "*",
     methods: ["POST", "GET", "OPTIONS"],
   });
+
   server.get("/", async (req: FastifyRequest, res: FastifyReply) => {
     res.status(200).send("Custom paymaster from SBC");
   });
+
   server.get("/debug-sentry", async (req: FastifyRequest, res: FastifyReply) => {
     throw new Error("This is a test error for Sentry");
   });
+
   server.register(
       async (instance: FastifyInstance, opts: FastifyServerOptions) => {
         instance.get(
@@ -128,6 +136,7 @@ const routes: FastifyPluginAsync = async (server) => {
               res.status(200).send({ message: "pong" });
             }
         );
+
         instance.register(
             async (chainInstance: FastifyInstance) => {
               chainInstance.post(
@@ -144,6 +153,7 @@ const routes: FastifyPluginAsync = async (server) => {
                         error: errorMessage
                       });
                     }
+
                     try {
                       const rpcHandler = await setupHandler(chain);
                       return rpcHandler(req, res);
@@ -165,4 +175,5 @@ const routes: FastifyPluginAsync = async (server) => {
       }
   );
 };
+
 export default routes;

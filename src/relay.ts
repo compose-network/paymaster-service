@@ -13,7 +13,6 @@ import {
   hexToBytes,
   toHex,
   keccak256,
-  pad,
 } from "viem";
 import { fromZodError } from "zod-validation-error";
 import { type EstimateUserOperationGasReturnType } from "permissionless";
@@ -34,10 +33,14 @@ import {
   pmGetPaymasterStubDataParamsSchema,
   pmSponsorUserOperationParamsSchema,
 } from "./helpers/schema";
-import {PAYMASTER_ABI as PaymasterAbi} from "./helpers/abi";
+
+import {
+  abi as PaymasterV07Abi,
+} from "../contracts/abi/SignatureVerifyingPaymasterV07.json";
+
 // Constants
 const PAYMASTER_VERSION = "1";
-const ENTRYPOINT_ADDRESS_V08 = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+
 /**
  * Generate EIP712 signature for paymaster data
  */
@@ -46,90 +49,72 @@ const generatePaymasterSignature = async (
     paymasterAddress: Hex,
     validUntil: number,
     validAfter: number,
-    userOperation: UserOperation<"v0.8">,
-    paymasterVerificationGasLimit: bigint,
-    paymasterPostOpGasLimit: bigint
+    senderAddress: Hex,
+    nonce: bigint,
+    calldataHash: Hex
 ): Promise<Hex> => {
   const chainId = await walletClient.getChainId();
 
-  const domain = {
-    name: "SSVPaymasterECDSASigner",
-    version: PAYMASTER_VERSION,
-    chainId,
-    verifyingContract: paymasterAddress
-  };
-
-  const types = {
-    UserOperationRequest: [
-      { name: "sender", type: "address" },
-      { name: "nonce", type: "uint256" },
-      { name: "initCode", type: "bytes32" },
-      { name: "callData", type: "bytes32" },
-      { name: "accountGasLimits", type: "bytes32" },
-      { name: "preVerificationGas", type: "uint256" },
-      { name: "gasFees", type: "bytes32" },
-      { name: "paymasterVerificationGasLimit", type: "uint256" },
-      { name: "paymasterPostOpGasLimit", type: "uint256" },
-      { name: "validAfter", type: "uint48" },
-      { name: "validUntil", type: "uint48" }
-    ]
-  } as const;
-
-  const accountGasLimits = `0x${pad(toHex(userOperation.verificationGasLimit), { size: 16 }).slice(2)}${pad(toHex(userOperation.callGasLimit), { size: 16 }).slice(2)}` as Hex;
-  const gasFees = `0x${pad(toHex(userOperation.maxPriorityFeePerGas), { size: 16 }).slice(2)}${pad(toHex(userOperation.maxFeePerGas), { size: 16 }).slice(2)}` as Hex;
-
-  const message = {
-    sender: userOperation.sender,
-    nonce: userOperation.nonce,
-    initCode: keccak256(userOperation.initCode),
-    callData: keccak256(userOperation.callData),
-    accountGasLimits,
-    preVerificationGas: userOperation.preVerificationGas,
-    gasFees,
-    paymasterVerificationGasLimit,
-    paymasterPostOpGasLimit,
-    validAfter: BigInt(validAfter),
-    validUntil: BigInt(validUntil)
-  };
-
   return await walletClient.signTypedData({
-    domain,
-    types,
-    primaryType: "UserOperationRequest",
-    message
+    domain: {
+      name: "SignatureVerifyingPaymaster",
+      version: PAYMASTER_VERSION,
+      chainId: chainId,
+      verifyingContract: paymasterAddress
+    },
+    types: {
+      PaymasterData: [
+        { name: "validUntil", type: "uint48" },
+        { name: "validAfter", type: "uint48" },
+        { name: "sender", type: "address" },
+        { name: "nonce", type: "uint256" },
+        { name: "calldataHash", type: "bytes32" }
+      ]
+    },
+    primaryType: "PaymasterData",
+    message: {
+      validUntil: validUntil,
+      validAfter: validAfter,
+      sender: senderAddress,
+      nonce: nonce,
+      calldataHash: calldataHash
+    }
   });
 };
+
 /**
  * Create paymaster data by combining timestamps and signature
- * @param validAfter The timestamp after which the signature is valid
  * @param validUntil The timestamp until which the signature is valid
+ * @param validAfter The timestamp after which the signature is valid
  * @param signature The EIP712 signature
  * @returns The formatted paymaster data
  */
 const createPaymasterData = (
-    validAfter: number,
     validUntil: number,
+    validAfter: number,
     signature: Hex
 ): Hex => {
-  const validAfterHex = validAfter.toString(16).padStart(12, '0');
   const validUntilHex = validUntil.toString(16).padStart(12, '0');
-  return `0x${validAfterHex}${validUntilHex}${signature.slice(2)}` as Hex;
+  const validAfterHex = validAfter.toString(16).padStart(12, '0');
+  return `0x${validUntilHex}${validAfterHex}${signature.slice(2)}` as Hex;
 };
+
 // SBC methods
+
 /**
- * Handle the SBC method for v0.8 entrypoint
+ * Handle the SBC method for v0.7 entrypoint
  * @param userOperation The user operation to handle
- * @param altoBundlerV08 The bundler client for v0.8
- * @param paymasterV08 The paymaster contract for v0.8
+ * @param altoBundlerV07 The bundler client for v0.7
+ * @param paymasterV07 The paymaster contract for v0.7
  * @param walletClient The wallet client of the Trusted Signer
  * @param estimateGas Whether to estimate the gas
  * @returns The result of the method
  */
-const handleSbcMethodV08 = async (
+const handleSbcMethodV07 = async (
     userOperation: UserOperation<"v0.7">,
-    altoBundlerV08: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE>,
-    paymasterV08: GetContractReturnType<
-        typeof PaymasterAbi,
+    altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
+    paymasterV07: GetContractReturnType<
+        typeof PaymasterV07Abi,
         PublicClient<Transport, Chain>
     >,
     trustedSignerWalletClient: WalletClient<Transport, Chain, Account>,
@@ -144,104 +129,90 @@ const handleSbcMethodV08 = async (
     // Use the sender address from the userOperation
     const senderAddress = userOperation.sender;
 
-    const payVerGasInitial = 100000n;
-    const payPostOpGas = 50000n;
-    let payVerGas = payVerGasInitial;
+    // Generate hash of calldata for signature verification
+    const calldataHash = keccak256(hexToBytes(userOperation.callData));
 
-    let signature = await generatePaymasterSignature(
+    // Generate EIP712 signature
+    const signature = await generatePaymasterSignature(
         trustedSignerWalletClient,
-        paymasterV08.address,
+        paymasterV07.address,
         validUntil,
         validAfter,
-        userOperation,
-        payVerGas,
-        payPostOpGas
+        senderAddress,
+        userOperation.nonce,
+        calldataHash
     );
 
-    let paymasterData = createPaymasterData(validAfter, validUntil, signature);
+    // Construct paymasterData
+    const paymasterData = createPaymasterData(validUntil, validAfter, signature);
 
-    if (estimateGas) {
-      // Build packed paymasterAndData
-      const packed = `0x${paymasterV08.address.slice(2)}${pad(toHex(payVerGas), { size: 16 }).slice(2)}${pad(toHex(payPostOpGas), { size: 16 }).slice(2)}${paymasterData.slice(2)}` as Hex;
-
-      const op = {
+    if (estimateGas && altoBundlerV07) {
+      // For gas estimation - commented out bundler usage for private chains, use hardcoded values instead
+      /*
+      let op = {
         ...userOperation,
-        paymasterAndData: packed
+        paymaster: paymasterV07.address,
+        paymasterData: paymasterData
       };
 
       let gasEstimates: EstimateUserOperationGasReturnType<ENTRYPOINT_ADDRESS_V07_TYPE>;
-      // try {
-      //   gasEstimates = await altoBundlerV08.estimateUserOperationGas({
-      //     userOperation: op,
-      //   });
-      // } catch (e) {
-      //   console.error("Gas estimation error:", e);
-      //   if (!(e instanceof BaseError)) throw new InternalBundlerError();
-      //   throw e.walk() as RpcRequestError;
-      // }
-
-      // Hardcode gas estimates with buffers
-      gasEstimates = {
-        preVerificationGas: 60000n, // 50k + 20%
-        verificationGasLimit: 600000n, // 500k + 20%
-        callGasLimit: 120000n, // 100k + 20%
-        paymasterVerificationGasLimit: 120000n, // 100k + 20%
-        paymasterPostOpGasLimit: 60000n // 50k + 20%
-      };
-
-      const estimatedPayVer = gasEstimates.paymasterVerificationGasLimit || payVerGasInitial;
-      if (estimatedPayVer !== payVerGas) {
-        payVerGas = estimatedPayVer;
-        signature = await generatePaymasterSignature(
-            trustedSignerWalletClient,
-            paymasterV08.address,
-            validUntil,
-            validAfter,
-            userOperation,
-            payVerGas,
-            payPostOpGas
-        );
-        paymasterData = createPaymasterData(validAfter, validUntil, signature);
+      try {
+        gasEstimates = await altoBundlerV07.estimateUserOperationGas({
+          userOperation: op,
+        });
+      } catch (e) {
+        console.error("Gas estimation error:", e);
+        if (!(e instanceof BaseError)) throw new InternalBundlerError();
+        throw e.walk() as RpcRequestError;
       }
 
       return {
         preVerificationGas: toHex(gasEstimates.preVerificationGas),
         callGasLimit: toHex(gasEstimates.callGasLimit),
-        paymasterVerificationGasLimit: toHex(payVerGas),
-        paymasterPostOpGasLimit: toHex(gasEstimates.paymasterPostOpGasLimit || payPostOpGas),
+        paymasterVerificationGasLimit: toHex(gasEstimates.paymasterVerificationGasLimit || 100_000n),
+        paymasterPostOpGasLimit: toHex(gasEstimates.paymasterPostOpGasLimit || 50_000n),
         verificationGasLimit: toHex(gasEstimates.verificationGasLimit),
-        paymaster: paymasterV08.address,
+        paymaster: paymasterV07.address,
         paymasterData: paymasterData,
       };
-    } else {
-      // For non-estimation
-      return {
-        preVerificationGas: toHex(userOperation.preVerificationGas || 60000n),
-        callGasLimit: toHex(userOperation.callGasLimit || 120000n),
-        paymasterVerificationGasLimit: toHex(payVerGas),
-        paymasterPostOpGasLimit: toHex(payPostOpGas),
-        verificationGasLimit: toHex(userOperation.verificationGasLimit || 600000n),
-        paymaster: paymasterV08.address,
-        paymasterData: paymasterData,
-      };
+      */
     }
+
+    // Return with default gas limits (used when no bundler or not estimating)
+    const callGasLimit = userOperation.callGasLimit || 500_000n;
+    const verificationGasLimit = userOperation.verificationGasLimit || 500_000n;
+    const preVerificationGas = userOperation.preVerificationGas || 100_000n;
+    const paymasterVerificationGasLimit = userOperation.paymasterVerificationGasLimit || 100_000n;
+    const paymasterPostOpGasLimit = userOperation.paymasterPostOpGasLimit || 50_000n;
+
+    return {
+      preVerificationGas: toHex(preVerificationGas),
+      callGasLimit: toHex(callGasLimit),
+      paymasterVerificationGasLimit: toHex(paymasterVerificationGasLimit),
+      paymasterPostOpGasLimit: toHex(paymasterPostOpGasLimit),
+      verificationGasLimit: toHex(verificationGasLimit),
+      paymaster: paymasterV07.address,
+      paymasterData: paymasterData,
+    };
+
   } catch (error) {
     console.error("Critical error during paymaster signing:", error);
     throw error;
   }
 };
+
 /**
  * Handle the SBC method
- * @param altoBundlerV08 The bundler client for v0.8
- * @param paymasterV08 The paymaster contract for v0.8
+ * @param altoBundlerV07 The bundler client for v0.7
+ * @param paymasterV07 The paymaster contract for v0.7
  * @param walletClient The wallet client of the Trusted Signer
  * @param parsedBody The parsed body of the request
  * @returns The result of the method
  */
 const handleSbcMethod = async (
-    altoBundlerV08: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE>,
-    paymasterV08: GetContractReturnType<
-        typeof PaymasterAbi,
+    altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
+    paymasterV07: GetContractReturnType<
+        typeof PaymasterV07Abi,
         PublicClient<Transport, Chain>
     >,
     trustedSignerWalletClient: WalletClient<Transport, Chain, Account>,
@@ -251,14 +222,17 @@ const handleSbcMethod = async (
     const params = pmGetPaymasterStubDataParamsSchema.safeParse(
         parsedBody.params
     );
+
     if (!params.success) {
       throw new RpcError(
           fromZodError(params.error).message,
           ValidationErrors.InvalidFields
       );
     }
-    const [userOperation, entryPoint, chainId] = params.data;
-    if (entryPoint !== ENTRYPOINT_ADDRESS_V08) {
+
+    const [userOperation, entryPoint] = params.data;
+
+    if (entryPoint !== ENTRYPOINT_ADDRESS_V07) {
       throw new RpcError(
           "EntryPoint not supported",
           ValidationErrors.InvalidFields
@@ -270,26 +244,26 @@ const handleSbcMethod = async (
       const validAfter = currentTimestamp - 10; // 10 seconds before current timestamp
       const validUntil = currentTimestamp + 3600; // 1 hour validity
 
-      const payVerGas = 120000n; // 100k + 20%
-      const payPostOpGas = 60000n; // 50k + 20%
+      const senderAddress = userOperation.sender;
+      const calldataHash = keccak256(hexToBytes(userOperation.callData));
 
       const signature = await generatePaymasterSignature(
           trustedSignerWalletClient,
-          paymasterV08.address,
+          paymasterV07.address,
           validUntil,
           validAfter,
-          userOperation as UserOperation<"v0.7">,
-          payVerGas,
-          payPostOpGas
+          senderAddress,
+          userOperation.nonce,
+          calldataHash
       );
 
-      const paymasterData = createPaymasterData(validAfter, validUntil, signature);
+      const paymasterData = createPaymasterData(validUntil, validAfter, signature);
 
       return {
         paymasterData: paymasterData,
-        paymasterVerificationGasLimit: toHex(payVerGas),
-        paymasterPostOpGasLimit: toHex(payPostOpGas),
-        paymaster: paymasterV08.address
+        paymasterVerificationGasLimit: toHex(100_000n),
+        paymasterPostOpGasLimit: toHex(50_000n),
+        paymaster: paymasterV07.address
       };
     } catch (error) {
       console.error("Critical error during paymaster stub data generation:", error);
@@ -299,128 +273,103 @@ const handleSbcMethod = async (
 
   if (parsedBody.method === "pm_getPaymasterData") {
     const params = pmGetPaymasterData.safeParse(parsedBody.params);
+
     if (!params.success) {
       throw new RpcError(
           fromZodError(params.error).message,
           ValidationErrors.InvalidFields
       );
     }
-    const [userOperation, entryPoint, chainId] = params.data;
-    if (entryPoint === ENTRYPOINT_ADDRESS_V08) {
-      console.log("Handling pm_getPaymasterData for v0.8 entrypoint");
-      return await handleSbcMethodV08(
+
+    const [userOperation, entryPoint] = params.data;
+
+    if (entryPoint === ENTRYPOINT_ADDRESS_V07) {
+      console.log("Handling pm_getPaymasterData for v0.7 entrypoint");
+      return await handleSbcMethodV07(
           userOperation as UserOperation<"v0.7">,
-          altoBundlerV08,
-          paymasterV08,
+          altoBundlerV07,
+          paymasterV07,
           trustedSignerWalletClient,
           false
       );
     }
+
     throw new RpcError(
         "EntryPoint not supported",
         ValidationErrors.InvalidFields
     );
   }
+
   if (parsedBody.method === "pm_sponsorUserOperation") {
     const params = pmSponsorUserOperationParamsSchema.safeParse(
         parsedBody.params
     );
+
     if (!params.success) {
       throw new RpcError(
           fromZodError(params.error).message,
           ValidationErrors.InvalidFields
       );
     }
+
     const [userOperation, entryPoint] = params.data;
-    if (entryPoint === ENTRYPOINT_ADDRESS_V08) {
-      console.log("Handling pm_sponsorUserOperation for v0.8 entrypoint");
-      return await handleSbcMethodV08(
+
+    if (entryPoint === ENTRYPOINT_ADDRESS_V07) {
+      console.log("Handling pm_sponsorUserOperation for v0.7 entrypoint");
+      return await handleSbcMethodV07(
           userOperation as UserOperation<"v0.7">,
-          altoBundlerV08,
-          paymasterV08,
+          altoBundlerV07,
+          paymasterV07,
           trustedSignerWalletClient,
           true
       );
     }
+
     throw new RpcError(
         "EntryPoint not supported",
         ValidationErrors.InvalidFields
     );
   }
+
   if (parsedBody.method === "eth_estimateUserOperationGas") {
     const params = ethEstimateUserOperationGasParamsSchema.safeParse(parsedBody.params);
+
     if (!params.success) {
       throw new RpcError(
           fromZodError(params.error).message,
           ValidationErrors.InvalidFields
       );
     }
+
     const [userOperation, entryPoint] = params.data;
-    if (entryPoint === ENTRYPOINT_ADDRESS_V08) {
-      console.log("Handling eth_estimateUserOperationGas for v0.8 entrypoint");
-      return await handleSbcMethodV08(
+
+    if (entryPoint === ENTRYPOINT_ADDRESS_V07) {
+      console.log("Handling eth_estimateUserOperationGas for v0.7 entrypoint");
+      return await handleSbcMethodV07(
           userOperation as UserOperation<"v0.7">,
-          altoBundlerV08,
-          paymasterV08,
+          altoBundlerV07,
+          paymasterV07,
           trustedSignerWalletClient,
           true
       );
     }
+
     throw new RpcError(
         "EntryPoint not supported",
         ValidationErrors.InvalidFields
     );
 
   }
-  if (parsedBody.method === "pm_prepareUserOperation") {
-    const params = pmSponsorUserOperationParamsSchema.safeParse(
-        parsedBody.params
-    );
-    if (!params.success) {
-      throw new RpcError(
-          fromZodError(params.error).message,
-          ValidationErrors.InvalidFields
-      );
-    }
-    const [userOperation, entryPoint] = params.data;
-    if (entryPoint !== ENTRYPOINT_ADDRESS_V08) {
-      throw new RpcError(
-          "EntryPoint not supported",
-          ValidationErrors.InvalidFields
-      );
-    }
-    const result = await handleSbcMethodV08(
-        userOperation as UserOperation<"v0.7">,
-        altoBundlerV08,
-        paymasterV08,
-        trustedSignerWalletClient,
-        true
-    );
-    const paymasterVerificationGasLimit = result.paymasterVerificationGasLimit;
-    const paymasterPostOpGasLimit = result.paymasterPostOpGasLimit;
-    const paymasterAndData = `0x${result.paymaster.slice(2)}${paymasterVerificationGasLimit.slice(2)}${paymasterPostOpGasLimit.slice(2)}${result.paymasterData.slice(2)}` as Hex;
-    const updatedUserOperation = {
-      sender: userOperation.sender,
-      nonce: toHex(userOperation.nonce),
-      initCode: userOperation.initCode,
-      callData: userOperation.callData,
-      accountGasLimits: `0x${pad(result.verificationGasLimit, { size: 16 }).slice(2)}${pad(result.callGasLimit, { size: 16 }).slice(2)}` as Hex,
-      preVerificationGas: result.preVerificationGas,
-      gasFees: `0x${pad(toHex(userOperation.maxPriorityFeePerGas), { size: 16 }).slice(2)}${pad(toHex(userOperation.maxFeePerGas), { size: 16 }).slice(2)}` as Hex,
-      paymasterAndData,
-      signature: "0x" as Hex,
-    };
-    return updatedUserOperation;
-  }
   throw new RpcError(
       "Attempted to call an unknown method",
       ValidationErrors.InvalidFields
   );
 };
+
 export const createSbcRpcHandler = (
-    altoBundlerV08: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE>,
-    paymasterV08: GetContractReturnType<
-        typeof PaymasterAbi,
+    altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
+    paymasterV07: GetContractReturnType<
+        typeof PaymasterV07Abi,
         PublicClient<Transport, Chain>
     >,
     trustedSignerWalletClient: WalletClient<Transport, Chain, Account>
@@ -434,13 +383,15 @@ export const createSbcRpcHandler = (
           ValidationErrors.InvalidFields
       );
     }
+
     try {
       const result = await handleSbcMethod(
-          altoBundlerV08,
-          paymasterV08,
+          altoBundlerV07,
+          paymasterV07,
           trustedSignerWalletClient,
           parsedBody.data
       );
+
       return {
         jsonrpc: "2.0",
         id: parsedBody.data.id,
@@ -448,6 +399,7 @@ export const createSbcRpcHandler = (
       };
     } catch (err: unknown) {
       console.log(`JSON.stringify(err): ${util.inspect(err)}`);
+
       const error = {
         // biome-ignore lint/suspicious/noExplicitAny:
         message: (err as any).message,
@@ -456,6 +408,7 @@ export const createSbcRpcHandler = (
         // biome-ignore lint/suspicious/noExplicitAny:
         code: (err as any).code ?? -32603,
       };
+
       return {
         jsonrpc: "2.0",
         id: parsedBody.data.id,

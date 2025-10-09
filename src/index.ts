@@ -8,7 +8,7 @@ import routes from "./routes";
 
 async function start(port = 3000) {
   const app = Fastify({});
-  
+
   // Set up Sentry error handler
   Sentry.setupFastifyErrorHandler(app);
 
@@ -22,10 +22,10 @@ async function start(port = 3000) {
 const PORT = Number(process.env.PORT) || 3000;
 
 start(PORT)
-  .then(() => {
-    console.log(`Running on http://[::]:${PORT} (IPv4 & IPv6)`);
-  })
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+    .then(() => {
+      console.log(`Running on http://[::]:${PORT} (IPv4 & IPv6)`);
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
