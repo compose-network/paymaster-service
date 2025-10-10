@@ -7,9 +7,9 @@ import {
 import routes from "./routes";
 
 async function app(
-  instance: FastifyInstance,
-  opts: FastifyServerOptions,
-  done: () => void
+    instance: FastifyInstance,
+    opts: FastifyServerOptions,
+    done: () => void
 ) {
   try {
     // Register all routes through the main routes plugin

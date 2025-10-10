@@ -5,7 +5,7 @@ dotenv.config();
 const SENTRY_DSN = process.env.SENTRY_DSN;
 
 if (!SENTRY_DSN) {
-  throw new Error("SENTRY_DSN is not set");
+  console.log("SENTRY_DSN is not set");
 } else {
   console.log("SENTRY_DSN is set");
 }
