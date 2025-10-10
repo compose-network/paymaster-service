@@ -102,47 +102,83 @@ const createPaymasterData = (
 // SBC methods
 
 /**
- * Handle SBC method for v0.7 EntryPoint, aligned with MyPaymasterSigner
+ * Handle the SBC method for v0.7 entrypoint
+ * @param userOperation The user operation to handle
+ * @param altoBundlerV07 The bundler client for v0.7
+ * @param paymasterV07 The paymaster contract for v0.7
+ * @param walletClient The wallet client of the Trusted Signer
+ * @param estimateGas Whether to estimate the gas
+ * @returns The result of the method
  */
 const handleSbcMethodV07 = async (
     userOperation: UserOperation<"v0.7">,
-    paymasterV07: GetContractReturnType<typeof PaymasterV07Abi, PublicClient<Transport, Chain>>,
+    altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
+    paymasterV07: GetContractReturnType<
+        typeof PaymasterV07Abi,
+        PublicClient<Transport, Chain>
+    >,
     trustedSignerWalletClient: WalletClient<Transport, Chain, Account>,
-    estimateGas = false
+    estimateGas: boolean
 ) => {
   try {
-    // Current timestamp
-    const now = Math.floor(Date.now() / 1000);
-    const validAfter = now - 10;   // 10 seconds before
-    const validUntil = now + 3600; // 1 hour validity
+    // Set timestamps for validation window
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const validAfter = currentTimestamp - 10; // 10 seconds before current timestamp
+    const validUntil = currentTimestamp + 3600; // 1 hour validity
 
+    // Use the sender address from the userOperation
+    const senderAddress = userOperation.sender;
+
+    // Generate hash of calldata for signature verification
     const calldataHash = keccak256(hexToBytes(userOperation.callData));
 
-    const chainId = await trustedSignerWalletClient.getChainId();
-    const signature = await trustedSignerWalletClient.signTypedData({
-      domain: {
-        name: "SignatureVerifyingPaymaster",
-        version: "1",
-        chainId,
-        verifyingContract: paymasterV07.address
-      },
-      types: {
-        PaymasterData: [
-          { name: "validAfter", type: "uint48" },
-          { name: "validUntil", type: "uint48" }
-        ]
-      },
-      primaryType: "PaymasterData",
-      message: {
+    // Generate EIP712 signature
+    const signature = await generatePaymasterSignature(
+        trustedSignerWalletClient,
+        paymasterV07.address,
+        validUntil,
         validAfter,
-        validUntil
+        senderAddress,
+        userOperation.nonce,
+        calldataHash
+    );
+
+    // Construct paymasterData
+    const paymasterData = createPaymasterData(validUntil, validAfter, signature);
+
+    if (estimateGas && altoBundlerV07) {
+      // For gas estimation - commented out bundler usage for private chains, use hardcoded values instead
+      /*
+      let op = {
+        ...userOperation,
+        paymaster: paymasterV07.address,
+        paymasterData: paymasterData
+      };
+
+      let gasEstimates: EstimateUserOperationGasReturnType<ENTRYPOINT_ADDRESS_V07_TYPE>;
+      try {
+        gasEstimates = await altoBundlerV07.estimateUserOperationGas({
+          userOperation: op,
+        });
+      } catch (e) {
+        console.error("Gas estimation error:", e);
+        if (!(e instanceof BaseError)) throw new InternalBundlerError();
+        throw e.walk() as RpcRequestError;
       }
-    });
 
-    const validAfterHex = validAfter.toString(16).padStart(12, "0"); // 6 bytes
-    const validUntilHex = validUntil.toString(16).padStart(12, "0"); // 6 bytes
-    const paymasterData = `0x${validAfterHex}${validUntilHex}${signature.slice(2)}` as Hex;
+      return {
+        preVerificationGas: toHex(gasEstimates.preVerificationGas),
+        callGasLimit: toHex(gasEstimates.callGasLimit),
+        paymasterVerificationGasLimit: toHex(gasEstimates.paymasterVerificationGasLimit || 100_000n),
+        paymasterPostOpGasLimit: toHex(gasEstimates.paymasterPostOpGasLimit || 50_000n),
+        verificationGasLimit: toHex(gasEstimates.verificationGasLimit),
+        paymaster: paymasterV07.address,
+        paymasterData: paymasterData,
+      };
+      */
+    }
 
+    // Return with default gas limits (used when no bundler or not estimating)
     const callGasLimit = userOperation.callGasLimit || 500_000n;
     const verificationGasLimit = userOperation.verificationGasLimit || 500_000n;
     const preVerificationGas = userOperation.preVerificationGas || 100_000n;
@@ -152,14 +188,15 @@ const handleSbcMethodV07 = async (
     return {
       preVerificationGas: toHex(preVerificationGas),
       callGasLimit: toHex(callGasLimit),
-      verificationGasLimit: toHex(verificationGasLimit),
       paymasterVerificationGasLimit: toHex(paymasterVerificationGasLimit),
       paymasterPostOpGasLimit: toHex(paymasterPostOpGasLimit),
+      verificationGasLimit: toHex(verificationGasLimit),
       paymaster: paymasterV07.address,
-      paymasterData
+      paymasterData: paymasterData,
     };
+
   } catch (error) {
-    console.error("Error generating paymasterData:", error);
+    console.error("Critical error during paymaster signing:", error);
     throw error;
   }
 };
