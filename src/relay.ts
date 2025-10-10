@@ -96,7 +96,7 @@ const createPaymasterData = (
 ): Hex => {
   const validUntilHex = validUntil.toString(16).padStart(12, '0');
   const validAfterHex = validAfter.toString(16).padStart(12, '0');
-  return `0x${validUntilHex}${validAfterHex}${signature.slice(2)}` as Hex;
+  return `0x${validAfterHex}${validUntilHex}${signature.slice(2)}` as Hex;
 };
 
 // SBC methods
