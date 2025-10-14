@@ -50,12 +50,16 @@ const generatePaymasterSignature = async (
 ): Promise<Hex> => {
   const chainId = await walletClient.getChainId();
 
-  // Compute hashes for initCode and callData
-  const initCodeHash = keccak256(hexToBytes(userOp.initCode || "0x"));
-  const callDataHash = keccak256(hexToBytes(userOp.callData));
+  const accountGasLimitsHex = userOp.accountGasLimits ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const verificationGasLimitBig = BigInt(accountGasLimitsHex.slice(0, 34));
+  const callGasLimitBig = BigInt(`0x${accountGasLimitsHex.slice(34)}`);
 
-  // Compute accountGasLimits as bytes32 hash
-  const accountGasLimits = userOp.accountGasLimits || "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const gasFeesHex = userOp.gasFees ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const maxPriorityFeePerGasBig = BigInt(gasFeesHex.slice(0, 34));
+  const maxFeePerGasBig = BigInt(`0x${gasFeesHex.slice(34)}`);
+
+  const initCodeHash = userOp.initCode ? keccak256(hexToBytes(userOp.initCode)) : "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const callDataHash = keccak256(hexToBytes(userOp.callData));
 
   return await walletClient.signTypedData({
     domain: {
@@ -70,9 +74,11 @@ const generatePaymasterSignature = async (
         { name: "nonce", type: "uint256" },
         { name: "initCode", type: "bytes32" },
         { name: "callData", type: "bytes32" },
-        { name: "accountGasLimits", type: "bytes32" },
+        { name: "verificationGasLimit", type: "uint256" },
+        { name: "callGasLimit", type: "uint256" },
         { name: "preVerificationGas", type: "uint256" },
-        { name: "gasFees", type: "bytes32" },
+        { name: "maxPriorityFeePerGas", type: "uint256" },
+        { name: "maxFeePerGas", type: "uint256" },
         { name: "paymasterVerificationGasLimit", type: "uint256" },
         { name: "paymasterPostOpGasLimit", type: "uint256" },
         { name: "validAfter", type: "uint48" },
@@ -85,11 +91,13 @@ const generatePaymasterSignature = async (
       nonce: userOp.nonce,
       initCode: initCodeHash,
       callData: callDataHash,
-      accountGasLimits: accountGasLimits,
-      preVerificationGas: userOp.preVerificationGas || 0,
-      gasFees: userOp.gasFees || "0x0000000000000000000000000000000000000000000000000000000000000000",
-      paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit || 0,
-      paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit || 0,
+      verificationGasLimit: verificationGasLimitBig,
+      callGasLimit: callGasLimitBig,
+      preVerificationGas: userOp.preVerificationGas || 0n,
+      maxPriorityFeePerGas: maxPriorityFeePerGasBig,
+      maxFeePerGas: maxFeePerGasBig,
+      paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit || 0n,
+      paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit || 0n,
       validAfter,
       validUntil,
     }
@@ -128,7 +136,7 @@ const handleSbcMethodV07 = async (
   try {
     const currentTimestamp = Math.floor(Date.now() / 1000);
     const validAfter = currentTimestamp - 10;
-    const validUntil = currentTimestamp + 3600;
+    const validUntil = currentTimestamp + 7200;
 
     // Generate EIP712 signature with fixed function
     const signature = await generatePaymasterSignature(
@@ -200,7 +208,7 @@ const handleSbcMethod = async (
     try {
       const currentTimestamp = Math.floor(Date.now() / 1000);
       const validAfter = currentTimestamp - 10;
-      const validUntil = currentTimestamp + 3600;
+      const validUntil = currentTimestamp + 7200;
 
       const signature = await generatePaymasterSignature(
           trustedSignerWalletClient,
@@ -354,11 +362,8 @@ export const createSbcRpcHandler = (
       console.log(`JSON.stringify(err): ${util.inspect(err)}`);
 
       const error = {
-        // biome-ignore lint/suspicious/noExplicitAny:
         message: (err as any).message,
-        // biome-ignore lint/suspicious/noExplicitAny:
         data: (err as any).data,
-        // biome-ignore lint/suspicious/noExplicitAny:
         code: (err as any).code ?? -32603,
       };
 
