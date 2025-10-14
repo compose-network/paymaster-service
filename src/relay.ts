@@ -41,43 +41,57 @@ import {
 // Constants
 const PAYMASTER_VERSION = "1";
 
-/**
- * Generate EIP712 signature for paymaster data
- */
 const generatePaymasterSignature = async (
     walletClient: WalletClient<Transport, Chain, Account>,
     paymasterAddress: Hex,
     validUntil: number,
     validAfter: number,
-    senderAddress: Hex,
-    nonce: bigint,
-    calldataHash: Hex
+    userOp: UserOperation<"v0.7">
 ): Promise<Hex> => {
   const chainId = await walletClient.getChainId();
+
+  // Compute hashes for initCode and callData
+  const initCodeHash = keccak256(hexToBytes(userOp.initCode || "0x"));
+  const callDataHash = keccak256(hexToBytes(userOp.callData));
+
+  // Compute accountGasLimits as bytes32 hash
+  const accountGasLimits = userOp.accountGasLimits || "0x0000000000000000000000000000000000000000000000000000000000000000";
 
   return await walletClient.signTypedData({
     domain: {
       name: "SignatureVerifyingPaymaster",
       version: PAYMASTER_VERSION,
       chainId: chainId,
-      verifyingContract: paymasterAddress
+      verifyingContract: paymasterAddress,
     },
     types: {
-      PaymasterData: [
-        { name: "validUntil", type: "uint48" },
-        { name: "validAfter", type: "uint48" },
+      UserOperationRequest: [
         { name: "sender", type: "address" },
         { name: "nonce", type: "uint256" },
-        { name: "calldataHash", type: "bytes32" }
+        { name: "initCode", type: "bytes32" },
+        { name: "callData", type: "bytes32" },
+        { name: "accountGasLimits", type: "bytes32" },
+        { name: "preVerificationGas", type: "uint256" },
+        { name: "gasFees", type: "bytes32" },
+        { name: "paymasterVerificationGasLimit", type: "uint256" },
+        { name: "paymasterPostOpGasLimit", type: "uint256" },
+        { name: "validAfter", type: "uint48" },
+        { name: "validUntil", type: "uint48" },
       ]
     },
-    primaryType: "PaymasterData",
+    primaryType: "UserOperationRequest",
     message: {
-      validUntil: validUntil,
-      validAfter: validAfter,
-      sender: senderAddress,
-      nonce: nonce,
-      calldataHash: calldataHash
+      sender: userOp.sender,
+      nonce: userOp.nonce,
+      initCode: initCodeHash,
+      callData: callDataHash,
+      accountGasLimits: accountGasLimits,
+      preVerificationGas: userOp.preVerificationGas || 0,
+      gasFees: userOp.gasFees || "0x0000000000000000000000000000000000000000000000000000000000000000",
+      paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit || 0,
+      paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit || 0,
+      validAfter,
+      validUntil,
     }
   });
 };
@@ -101,15 +115,6 @@ const createPaymasterData = (
 
 // SBC methods
 
-/**
- * Handle the SBC method for v0.7 entrypoint
- * @param userOperation The user operation to handle
- * @param altoBundlerV07 The bundler client for v0.7
- * @param paymasterV07 The paymaster contract for v0.7
- * @param walletClient The wallet client of the Trusted Signer
- * @param estimateGas Whether to estimate the gas
- * @returns The result of the method
- */
 const handleSbcMethodV07 = async (
     userOperation: UserOperation<"v0.7">,
     altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
@@ -121,64 +126,25 @@ const handleSbcMethodV07 = async (
     estimateGas: boolean
 ) => {
   try {
-    // Set timestamps for validation window
     const currentTimestamp = Math.floor(Date.now() / 1000);
-    const validAfter = currentTimestamp - 10; // 10 seconds before current timestamp
-    const validUntil = currentTimestamp + 3600; // 1 hour validity
+    const validAfter = currentTimestamp - 10;
+    const validUntil = currentTimestamp + 3600;
 
-    // Use the sender address from the userOperation
-    const senderAddress = userOperation.sender;
-
-    // Generate hash of calldata for signature verification
-    const calldataHash = keccak256(hexToBytes(userOperation.callData));
-
-    // Generate EIP712 signature
+    // Generate EIP712 signature with fixed function
     const signature = await generatePaymasterSignature(
         trustedSignerWalletClient,
         paymasterV07.address,
         validUntil,
         validAfter,
-        senderAddress,
-        userOperation.nonce,
-        calldataHash
+        userOperation
     );
 
-    // Construct paymasterData
     const paymasterData = createPaymasterData(validUntil, validAfter, signature);
 
     if (estimateGas && altoBundlerV07) {
-      // For gas estimation - commented out bundler usage for private chains, use hardcoded values instead
-      /*
-      let op = {
-        ...userOperation,
-        paymaster: paymasterV07.address,
-        paymasterData: paymasterData
-      };
-
-      let gasEstimates: EstimateUserOperationGasReturnType<ENTRYPOINT_ADDRESS_V07_TYPE>;
-      try {
-        gasEstimates = await altoBundlerV07.estimateUserOperationGas({
-          userOperation: op,
-        });
-      } catch (e) {
-        console.error("Gas estimation error:", e);
-        if (!(e instanceof BaseError)) throw new InternalBundlerError();
-        throw e.walk() as RpcRequestError;
-      }
-
-      return {
-        preVerificationGas: toHex(gasEstimates.preVerificationGas),
-        callGasLimit: toHex(gasEstimates.callGasLimit),
-        paymasterVerificationGasLimit: toHex(gasEstimates.paymasterVerificationGasLimit || 100_000n),
-        paymasterPostOpGasLimit: toHex(gasEstimates.paymasterPostOpGasLimit || 50_000n),
-        verificationGasLimit: toHex(gasEstimates.verificationGasLimit),
-        paymaster: paymasterV07.address,
-        paymasterData: paymasterData,
-      };
-      */
+      // Gas estimation disabled for private chains
     }
 
-    // Return with default gas limits (used when no bundler or not estimating)
     const callGasLimit = userOperation.callGasLimit || 500_000n;
     const verificationGasLimit = userOperation.verificationGasLimit || 500_000n;
     const preVerificationGas = userOperation.preVerificationGas || 100_000n;
@@ -201,14 +167,6 @@ const handleSbcMethodV07 = async (
   }
 };
 
-/**
- * Handle the SBC method
- * @param altoBundlerV07 The bundler client for v0.7
- * @param paymasterV07 The paymaster contract for v0.7
- * @param walletClient The wallet client of the Trusted Signer
- * @param parsedBody The parsed body of the request
- * @returns The result of the method
- */
 const handleSbcMethod = async (
     altoBundlerV07: PimlicoBundlerClient<ENTRYPOINT_ADDRESS_V07_TYPE> | undefined,
     paymasterV07: GetContractReturnType<
@@ -241,20 +199,15 @@ const handleSbcMethod = async (
 
     try {
       const currentTimestamp = Math.floor(Date.now() / 1000);
-      const validAfter = currentTimestamp - 10; // 10 seconds before current timestamp
-      const validUntil = currentTimestamp + 3600; // 1 hour validity
-
-      const senderAddress = userOperation.sender;
-      const calldataHash = keccak256(hexToBytes(userOperation.callData));
+      const validAfter = currentTimestamp - 10;
+      const validUntil = currentTimestamp + 3600;
 
       const signature = await generatePaymasterSignature(
           trustedSignerWalletClient,
           paymasterV07.address,
           validUntil,
           validAfter,
-          senderAddress,
-          userOperation.nonce,
-          calldataHash
+          userOperation
       );
 
       const paymasterData = createPaymasterData(validUntil, validAfter, signature);
