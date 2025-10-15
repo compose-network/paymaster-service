@@ -46,20 +46,16 @@ const generatePaymasterSignature = async (
     paymasterAddress: Hex,
     validUntil: number,
     validAfter: number,
-    userOp: UserOperation<"v0.7">
+    userOp: UserOperation<"v0.7">,
+    paymasterVerificationGasLimit: bigint,
+    paymasterPostOpGasLimit: bigint
 ): Promise<Hex> => {
   const chainId = await walletClient.getChainId();
 
-  const accountGasLimitsHex = userOp.accountGasLimits ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
-  const verificationGasLimitBig = BigInt(accountGasLimitsHex.slice(0, 34));
-  const callGasLimitBig = BigInt(`0x${accountGasLimitsHex.slice(34)}`);
-
-  const gasFeesHex = userOp.gasFees ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
-  const maxPriorityFeePerGasBig = BigInt(gasFeesHex.slice(0, 34));
-  const maxFeePerGasBig = BigInt(`0x${gasFeesHex.slice(34)}`);
-
-  const initCodeHash = userOp.initCode ? keccak256(hexToBytes(userOp.initCode)) : "0x0000000000000000000000000000000000000000000000000000000000000000";
-  const callDataHash = keccak256(hexToBytes(userOp.callData));
+  const accountGasLimits = userOp.accountGasLimits ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const gasFees = userOp.gasFees ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const initCode = userOp.initCode ?? '0x';
+  const callData = userOp.callData ?? '0x';
 
   return await walletClient.signTypedData({
     domain: {
@@ -72,13 +68,11 @@ const generatePaymasterSignature = async (
       UserOperationRequest: [
         { name: "sender", type: "address" },
         { name: "nonce", type: "uint256" },
-        { name: "initCode", type: "bytes32" },
-        { name: "callData", type: "bytes32" },
-        { name: "verificationGasLimit", type: "uint256" },
-        { name: "callGasLimit", type: "uint256" },
+        { name: "initCode", type: "bytes" },
+        { name: "callData", type: "bytes" },
+        { name: "accountGasLimits", type: "bytes32" },
         { name: "preVerificationGas", type: "uint256" },
-        { name: "maxPriorityFeePerGas", type: "uint256" },
-        { name: "maxFeePerGas", type: "uint256" },
+        { name: "gasFees", type: "bytes32" },
         { name: "paymasterVerificationGasLimit", type: "uint256" },
         { name: "paymasterPostOpGasLimit", type: "uint256" },
         { name: "validAfter", type: "uint48" },
@@ -89,15 +83,13 @@ const generatePaymasterSignature = async (
     message: {
       sender: userOp.sender,
       nonce: userOp.nonce,
-      initCode: initCodeHash,
-      callData: callDataHash,
-      verificationGasLimit: verificationGasLimitBig,
-      callGasLimit: callGasLimitBig,
+      initCode,
+      callData,
+      accountGasLimits,
       preVerificationGas: userOp.preVerificationGas || 0n,
-      maxPriorityFeePerGas: maxPriorityFeePerGasBig,
-      maxFeePerGas: maxFeePerGasBig,
-      paymasterVerificationGasLimit: userOp.paymasterVerificationGasLimit || 0n,
-      paymasterPostOpGasLimit: userOp.paymasterPostOpGasLimit || 0n,
+      gasFees,
+      paymasterVerificationGasLimit,
+      paymasterPostOpGasLimit,
       validAfter,
       validUntil,
     }
@@ -138,13 +130,18 @@ const handleSbcMethodV07 = async (
     const validAfter = currentTimestamp - 10;
     const validUntil = currentTimestamp + 7200;
 
+    const paymasterVerificationGasLimit = 100_000n;
+    const paymasterPostOpGasLimit = 50_000n;
+
     // Generate EIP712 signature with fixed function
     const signature = await generatePaymasterSignature(
         trustedSignerWalletClient,
         paymasterV07.address,
         validUntil,
         validAfter,
-        userOperation
+        userOperation,
+        paymasterVerificationGasLimit,
+        paymasterPostOpGasLimit
     );
 
     const paymasterData = createPaymasterData(validUntil, validAfter, signature);
@@ -156,8 +153,6 @@ const handleSbcMethodV07 = async (
     const callGasLimit = userOperation.callGasLimit || 500_000n;
     const verificationGasLimit = userOperation.verificationGasLimit || 500_000n;
     const preVerificationGas = userOperation.preVerificationGas || 100_000n;
-    const paymasterVerificationGasLimit = userOperation.paymasterVerificationGasLimit || 100_000n;
-    const paymasterPostOpGasLimit = userOperation.paymasterPostOpGasLimit || 50_000n;
 
     return {
       preVerificationGas: toHex(preVerificationGas),
@@ -210,20 +205,25 @@ const handleSbcMethod = async (
       const validAfter = currentTimestamp - 10;
       const validUntil = currentTimestamp + 7200;
 
+      const paymasterVerificationGasLimit = 100_000n;
+      const paymasterPostOpGasLimit = 50_000n;
+
       const signature = await generatePaymasterSignature(
           trustedSignerWalletClient,
           paymasterV07.address,
           validUntil,
           validAfter,
-          userOperation
+          userOperation,
+          paymasterVerificationGasLimit,
+          paymasterPostOpGasLimit
       );
 
       const paymasterData = createPaymasterData(validUntil, validAfter, signature);
 
       return {
         paymasterData: paymasterData,
-        paymasterVerificationGasLimit: toHex(100_000n),
-        paymasterPostOpGasLimit: toHex(50_000n),
+        paymasterVerificationGasLimit: toHex(paymasterVerificationGasLimit),
+        paymasterPostOpGasLimit: toHex(paymasterPostOpGasLimit),
         paymaster: paymasterV07.address
       };
     } catch (error) {
