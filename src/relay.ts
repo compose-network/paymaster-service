@@ -39,7 +39,7 @@ import {
 } from "../contracts/abi/SignatureVerifyingPaymasterV07.json";
 
 // Constants
-const PAYMASTER_VERSION = "1";
+const PAYMASTER_VERSION = "5";
 
 /**
  * Generate EIP712 signature for paymaster data
