@@ -179,11 +179,11 @@ const handleSbcMethodV07 = async (
     }
 
     // Return with default gas limits (used when no bundler or not estimating)
-    const callGasLimit = userOperation.callGasLimit || 500_000n;
-    const verificationGasLimit = userOperation.verificationGasLimit || 500_000n;
-    const preVerificationGas = userOperation.preVerificationGas || 100_000n;
-    const paymasterVerificationGasLimit = userOperation.paymasterVerificationGasLimit || 100_000n;
-    const paymasterPostOpGasLimit = userOperation.paymasterPostOpGasLimit || 50_000n;
+    const callGasLimit = userOperation.callGasLimit || 2_000_000n;
+    const verificationGasLimit = userOperation.verificationGasLimit || 1_000_000n;
+    const preVerificationGas = userOperation.preVerificationGas || 500_000n;
+    const paymasterVerificationGasLimit = userOperation.paymasterVerificationGasLimit || 200_000n;
+    const paymasterPostOpGasLimit = userOperation.paymasterPostOpGasLimit || 100_000n;
 
     return {
       preVerificationGas: toHex(preVerificationGas),
