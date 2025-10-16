@@ -1,0 +1,4 @@
+[submodule "contracts/kernel"]
+	path = contracts/kernel
+	url = https://github.com/zerodevapp/kernel.git
+	branch = release/v3.1

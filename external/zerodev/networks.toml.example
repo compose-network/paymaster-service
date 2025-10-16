@@ -1,0 +1,40 @@
+# Network Configurations for Multi-Chain Deployment
+# Add your rollup chains here
+
+[networks.sepolia]
+name = "Sepolia Testnet"
+rpc_url = "https://0xrpc.io/sep"
+chain_id = 11155111
+explorer_type = "etherscan"
+explorer_url = "https://sepolia.etherscan.io"
+explorer_api_url = "https://api-sepolia.etherscan.io/api"
+entrypoint = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
+
+[networks.rollup-a]
+name = "Rollup A Testnet"
+rpc_url = "https://rpc-a.testnet.compose.network/"
+chain_id = 11111 
+explorer_type = "blockscout"
+explorer_url = "https://rollup-a-bck.explorer.testnet.compose.network/api/eth-rpc"
+explorer_api_url = "https://rollup-a-bck.explorer.testnet.compose.network/api/"
+entrypoint = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
+
+[networks.rollup-b]
+name = "Rollup B Testnet"
+rpc_url = "https://rpc-b.testnet.compose.network/"
+chain_id = 22222
+explorer_type = "blockscout"
+explorer_url = "https://rollup-b-bck.explorer.testnet.compose.network/api/eth-rpc"
+explorer_api_url = "https://rollup-b-bck.explorer.testnet.compose.network/api/"
+entrypoint = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
+
+
+# Add more networks as needed
+# [networks.rollup-c]
+# name = "Rollup C"
+# rpc_url = "https://..."
+# chain_id = 12345
+# explorer_type = "blockscout"
+# explorer_url = "https://..."
+# explorer_api_url = "https://..."
+# entrypoint = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"

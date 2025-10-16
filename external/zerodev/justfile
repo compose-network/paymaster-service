@@ -1,0 +1,256 @@
+# Kernel Contract Deployment Scripts
+# Requires: foundry (forge), just
+
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Setup the kernel submodule and dependencies
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Setting up kernel submodule..."
+    git submodule add -b release/v3.1 https://github.com/zerodevapp/kernel.git contracts/kernel || true
+    git submodule update --init --recursive
+    echo "Installing dependencies..."
+    cd contracts/kernel && forge install
+    echo "Setup complete!"
+
+# Build all contracts
+build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Building kernel contracts..."
+    cd contracts/kernel
+    FOUNDRY_PROFILE=deploy forge build
+    echo "Build complete!"
+
+# Clean build artifacts
+clean:
+    #!/usr/bin/env bash
+    cd contracts/kernel
+    forge clean
+
+# Deploy Kernel implementation contract
+# Usage: just deploy-kernel <RPC_URL> <PRIVATE_KEY> <ENTRYPOINT_ADDRESS>
+deploy-kernel RPC_URL PRIVATE_KEY ENTRYPOINT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd contracts/kernel
+    echo "Deploying Kernel implementation..."
+    FOUNDRY_PROFILE=deploy forge create  src/Kernel.sol:Kernel \
+        --broadcast \
+        --rpc-url {{RPC_URL}} \
+        --private-key {{PRIVATE_KEY}} \
+        --constructor-args {{ENTRYPOINT}} \ 
+        
+
+# Deploy KernelFactory contract
+# Usage: just deploy-factory <RPC_URL> <PRIVATE_KEY> <KERNEL_IMPL_ADDRESS>
+deploy-factory RPC_URL PRIVATE_KEY KERNEL_IMPL:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd contracts/kernel
+    echo "Deploying KernelFactory..."
+    FOUNDRY_PROFILE=deploy forge create src/factory/KernelFactory.sol:KernelFactory \
+        --broadcast \
+        --rpc-url {{RPC_URL}} \
+        --private-key {{PRIVATE_KEY}} \
+        --constructor-args {{KERNEL_IMPL}} \
+
+# Deploy MultiChainValidator contract
+# Usage: just deploy-validator <RPC_URL> <PRIVATE_KEY>
+deploy-validator RPC_URL PRIVATE_KEY:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd contracts/kernel
+    echo "Deploying MultiChainValidator..."
+    FOUNDRY_PROFILE=deploy forge create src/validator/MultiChainValidator.sol:MultiChainValidator \
+        --broadcast \
+        --rpc-url {{RPC_URL}} \
+        --private-key {{PRIVATE_KEY}} \
+
+# Deploy all contracts in sequence
+# Usage: just deploy-all <RPC_URL> <PRIVATE_KEY> <ENTRYPOINT_ADDRESS>
+deploy-all RPC_URL PRIVATE_KEY ENTRYPOINT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Building contracts first..."
+    just build
+    echo ""
+    echo "Deploying Kernel implementation..."
+    KERNEL_ADDR=$(just deploy-kernel {{RPC_URL}} {{PRIVATE_KEY}} {{ENTRYPOINT}} | grep "Deployed to:" | awk '{print $3}')
+    echo "Kernel deployed at: $KERNEL_ADDR"
+    echo ""
+    echo "Deploying KernelFactory..."
+    FACTORY_ADDR=$(just deploy-factory {{RPC_URL}} {{PRIVATE_KEY}} $KERNEL_ADDR | grep "Deployed to:" | awk '{print $3}')
+    echo "KernelFactory deployed at: $FACTORY_ADDR"
+    echo ""
+    echo "Deploying MultiChainValidator..."
+    VALIDATOR_ADDR=$(just deploy-validator {{RPC_URL}} {{PRIVATE_KEY}} | grep "Deployed to:" | awk '{print $3}')
+    echo "MultiChainValidator deployed at: $VALIDATOR_ADDR"
+    echo ""
+    echo "=== Deployment Summary ==="
+    echo "Kernel:             $KERNEL_ADDR"
+    echo "KernelFactory:      $FACTORY_ADDR"
+    echo "MultiChainValidator: $VALIDATOR_ADDR"
+
+# Verify a deployed contract
+# Usage: just verify <CONTRACT_ADDRESS> <CONTRACT_PATH:CONTRACT_NAME> <RPC_URL> <CONSTRUCTOR_ARGS...>
+verify CONTRACT_ADDRESS CONTRACT_NAME RPC_URL *ARGS:
+    #!/usr/bin/env bash
+    cd contracts/kernel
+    forge verify-contract {{CONTRACT_ADDRESS}} {{CONTRACT_NAME}} \
+        --rpc-url {{RPC_URL}} \
+        --constructor-args {{ARGS}}
+
+# Load environment variables from .env file
+load-env:
+    @echo "Loading environment variables from .env"
+    @test -f .env && export $(cat .env | xargs) || echo "No .env file found"
+
+# Deploy using environment variables from .env
+# Usage: just deploy-env
+deploy-env: load-env
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .env ]; then
+        echo "Error: .env file not found. Copy .env.example to .env and fill in your values."
+        exit 1
+    fi
+    source .env
+    just deploy-all $RPC_URL $PRIVATE_KEY $ENTRYPOINT_ADDRESS
+
+# List available networks from networks.toml
+list-networks:
+    #!/usr/bin/env bash
+    echo "Available networks:"
+    grep "^\[networks\." networks.toml | sed 's/\[networks\./  - /' | sed 's/\]//'
+
+# Show all deployments from deployments.json
+show-deployments:
+    #!/usr/bin/env bash
+    if [ ! -f "deployments.json" ]; then
+        echo "No deployments found. Run 'just deploy-network <network>' first."
+        exit 1
+    fi
+    echo "=== Deployment Addresses ==="
+    cat deployments.json | jq -r 'to_entries[] | "\n\u001b[1;34m\(.key)\u001b[0m (Chain ID: \(.value.chain_id)):\n  Kernel:             \(.value.Kernel)\n  KernelFactory:      \(.value.KernelFactory)\n  MultiChainValidator: \(.value.MultiChainValidator)\n  Deployed:           \(.value.deployed_at)"'
+
+# Get deployment addresses for a specific network
+get-deployment NETWORK:
+    #!/usr/bin/env bash
+    if [ ! -f "deployments.json" ]; then
+        echo "No deployments found."
+        exit 1
+    fi
+    jq -r '.["{{NETWORK}}"] // "Network not found in deployments.json"' deployments.json
+
+# Deploy to a specific network from networks.toml
+# Usage: just deploy-network <network-name>
+deploy-network NETWORK:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/parse-network.sh {{NETWORK}}
+    echo "Deploying to: $NETWORK_DISPLAY_NAME"
+    echo "RPC: $NETWORK_RPC_URL"
+    echo ""
+    just build
+    
+    # Capture deployment output
+    DEPLOY_OUTPUT=$(just deploy-all "$NETWORK_RPC_URL" "$PRIVATE_KEY" "$NETWORK_ENTRYPOINT" 2>&1)
+    echo "$DEPLOY_OUTPUT"
+    
+    # Extract addresses
+    KERNEL_ADDR=$(echo "$DEPLOY_OUTPUT" | grep "Kernel:" | awk '{print $2}')
+    FACTORY_ADDR=$(echo "$DEPLOY_OUTPUT" | grep "KernelFactory:" | awk '{print $2}')
+    VALIDATOR_ADDR=$(echo "$DEPLOY_OUTPUT" | grep "MultiChainValidator:" | awk '{print $2}')
+    
+    # Save to deployments.json
+    if [ -n "$KERNEL_ADDR" ] && [ -n "$FACTORY_ADDR" ] && [ -n "$VALIDATOR_ADDR" ]; then
+        ./scripts/save-deployment.sh "{{NETWORK}}" "$KERNEL_ADDR" "$FACTORY_ADDR" "$VALIDATOR_ADDR" "$NETWORK_CHAIN_ID"
+    else
+        echo "Warning: Could not extract all addresses, skipping save to deployments.json"
+    fi
+
+# Deploy to multiple networks
+# Usage: just deploy-multi sepolia rollup-a rollup-b
+deploy-multi *NETWORKS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Multi-Chain Deployment ==="
+    echo "Networks: {{NETWORKS}}"
+    echo ""
+    for network in {{NETWORKS}}; do
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Deploying to: $network"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        just deploy-network $network
+        echo ""
+        echo "✓ Completed: $network"
+        echo ""
+        sleep 2
+    done
+    echo "=== All Deployments Complete ==="
+
+# Verify contract on Blockscout
+# Usage: just verify-blockscout <network> <address> <contract>
+verify-blockscout NETWORK ADDRESS CONTRACT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/parse-network.sh {{NETWORK}}
+    cd contracts/kernel
+    echo "Verifying on Blockscout: $NETWORK_DISPLAY_NAME"
+    forge verify-contract \
+        --rpc-url "$NETWORK_RPC_URL" \
+        --verifier blockscout \
+        --verifier-url "$NETWORK_EXPLORER_API_URL" \
+        {{ADDRESS}} \
+        {{CONTRACT}}
+
+# Verify contract on Etherscan
+# Usage: just verify-etherscan <network> <address> <contract> <constructor-args...>
+verify-etherscan NETWORK ADDRESS CONTRACT *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/parse-network.sh {{NETWORK}}
+    cd contracts/kernel
+    echo "Verifying on Etherscan: $NETWORK_DISPLAY_NAME"
+    forge verify-contract \
+        --rpc-url "$NETWORK_RPC_URL" \
+        --etherscan-api-key "$ETHERSCAN_API_KEY" \
+        --constructor-args {{ARGS}} \
+        {{ADDRESS}} \
+        {{CONTRACT}}
+
+# Verify all contracts for a network deployment
+# Usage: just verify-all <network> <kernel-addr> <factory-addr> <validator-addr>
+verify-all NETWORK KERNEL_ADDR FACTORY_ADDR VALIDATOR_ADDR:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source scripts/parse-network.sh {{NETWORK}}
+    echo "Verifying all contracts on: $NETWORK_DISPLAY_NAME"
+    echo "Explorer type: $NETWORK_EXPLORER_TYPE"
+    echo ""
+    
+    if [ "$NETWORK_EXPLORER_TYPE" = "blockscout" ]; then
+        echo "Verifying Kernel..."
+        just verify-blockscout {{NETWORK}} {{KERNEL_ADDR}} src/Kernel.sol:Kernel
+        echo ""
+        echo "Verifying KernelFactory..."
+        just verify-blockscout {{NETWORK}} {{FACTORY_ADDR}} src/factory/KernelFactory.sol:KernelFactory
+        echo ""
+        echo "Verifying MultiChainValidator..."
+        just verify-blockscout {{NETWORK}} {{VALIDATOR_ADDR}} src/validator/MultiChainValidator.sol:MultiChainValidator
+    else
+        echo "Verifying Kernel..."
+        just verify-etherscan {{NETWORK}} {{KERNEL_ADDR}} src/Kernel.sol:Kernel $NETWORK_ENTRYPOINT
+        echo ""
+        echo "Verifying KernelFactory..."
+        just verify-etherscan {{NETWORK}} {{FACTORY_ADDR}} src/factory/KernelFactory.sol:KernelFactory {{KERNEL_ADDR}}
+        echo ""
+        echo "Verifying MultiChainValidator..."
+        just verify-etherscan {{NETWORK}} {{VALIDATOR_ADDR}} src/validator/MultiChainValidator.sol:MultiChainValidator
+    fi
+    echo ""
+    echo "✓ All contracts verified!"
