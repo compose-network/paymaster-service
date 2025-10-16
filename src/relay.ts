@@ -129,8 +129,14 @@ const handleSbcMethodV07 = async (
     // Use the sender address from the userOperation
     const senderAddress = userOperation.sender;
 
-    // Generate hash of calldata for signature verification
-    const calldataHash = keccak256(hexToBytes(userOperation.callData));
+    const initCode =
+        userOperation.factory && userOperation.factoryData
+            ? userOperation.factory + userOperation.factoryData.slice(2)
+            : "0x";
+
+    const calldataHash = keccak256(
+        hexToBytes(userOperation.callData + initCode.slice(2))
+    );
 
     // Generate EIP712 signature
     const signature = await generatePaymasterSignature(
@@ -174,6 +180,7 @@ const handleSbcMethodV07 = async (
         verificationGasLimit: toHex(gasEstimates.verificationGasLimit),
         paymaster: paymasterV07.address,
         paymasterData: paymasterData,
+        initCode: initCode,
       };
       */
     }
@@ -193,6 +200,7 @@ const handleSbcMethodV07 = async (
       verificationGasLimit: toHex(verificationGasLimit),
       paymaster: paymasterV07.address,
       paymasterData: paymasterData,
+      initCode: initCode,
     };
 
   } catch (error) {
@@ -241,11 +249,16 @@ const handleSbcMethod = async (
 
     try {
       const currentTimestamp = Math.floor(Date.now() / 1000);
-      const validAfter = currentTimestamp - 10; // 10 seconds before current timestamp
-      const validUntil = currentTimestamp + 3600; // 1 hour validity
+      const validAfter = currentTimestamp - 10;
+      const validUntil = currentTimestamp + 3600;
 
       const senderAddress = userOperation.sender;
-      const calldataHash = keccak256(hexToBytes(userOperation.callData));
+      const initCode =
+          userOperation.factory && userOperation.factoryData
+              ? userOperation.factory + userOperation.factoryData.slice(2)
+              : "0x";
+
+      const calldataHash = keccak256(hexToBytes(userOperation.callData + initCode.slice(2)));
 
       const signature = await generatePaymasterSignature(
           trustedSignerWalletClient,
@@ -263,7 +276,8 @@ const handleSbcMethod = async (
         paymasterData: paymasterData,
         paymasterVerificationGasLimit: toHex(100_000n),
         paymasterPostOpGasLimit: toHex(50_000n),
-        paymaster: paymasterV07.address
+        paymaster: paymasterV07.address,
+        initCode: initCode,
       };
     } catch (error) {
       console.error("Critical error during paymaster stub data generation:", error);
