@@ -11,13 +11,20 @@ contract DeployPaymasterScript is Script {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address entryPointAddress = vm.envAddress("ENTRY_POINT_V07_ADDRESS");
         address trustedSigner = vm.envAddress("TRUSTED_SIGNER");
+
+        bytes32 saltImpl = keccak256("SIG_VER_PAYMASTER_IMPL_V1");
+        bytes32 saltProxy = keccak256("SIG_VER_PAYMASTER_PROXY_V1");
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
         
         // Deploy implementation
-        SignatureVerifyingPaymasterV07 implementation = new SignatureVerifyingPaymasterV07(
-            IEntryPoint(entryPointAddress)
+        address implementation = _deployCreate2(
+            saltImpl,
+            abi.encodePacked(
+                type(SignatureVerifyingPaymasterV07).creationCode,
+                abi.encode(IEntryPoint(entryPointAddress))
+            )
         );
         
         // Prepare initialization data
@@ -28,9 +35,12 @@ contract DeployPaymasterScript is Script {
         );
         
         // Deploy proxy
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation),
-            initData
+        address proxy = _deployCreate2(
+            saltProxy,
+            abi.encodePacked(
+                type(ERC1967Proxy).creationCode,
+                abi.encode(implementation, initData)
+            )
         );
         
         // Log addresses
@@ -38,5 +48,12 @@ contract DeployPaymasterScript is Script {
         console.log("Proxy deployed at:", address(proxy));
         
         vm.stopBroadcast();
+    }
+
+    function _deployCreate2(bytes32 salt, bytes memory code) internal returns (address addr) {
+        assembly {
+            addr := create2(0, add(code, 0x20), mload(code), salt)
+            if iszero(extcodesize(addr)) { revert(0, 0) }
+        }
     }
 }
