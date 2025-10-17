@@ -26,6 +26,7 @@ broadcast/
 # misc
 .DS_Store
 *.pem
+.history
 
 # debug
 npm-debug.log*

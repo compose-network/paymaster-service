@@ -1,0 +1,16 @@
+{
+  "rollup-a": {
+    "chain_id": "11111",
+    "Kernel": "0x0d33801785340072C452b994496B19f196b7eE15",
+    "KernelFactory": "0xa9d0096bdbf97401F1B5E8D5330Ee8b7f0cb975D",
+    "MultiChainValidator": "0x656d5cC4e7d49EaCC063cBB8D3e072F2841D68b4",
+    "deployed_at": "2025-01-15 22:30:45 UTC"
+  },
+  "rollup-b": {
+    "chain_id": "22222",
+    "Kernel": "0x...",
+    "KernelFactory": "0x...",
+    "MultiChainValidator": "0x...",
+    "deployed_at": "2025-01-15 22:35:12 UTC"
+  }
+}

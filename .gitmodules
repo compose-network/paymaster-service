@@ -1,0 +1,4 @@
+[submodule "external/zerodev/contracts/kernel"]
+	path = external/zerodev/contracts/kernel
+	url = https://github.com/zerodevapp/kernel.git
+	branch = release/v3.1
