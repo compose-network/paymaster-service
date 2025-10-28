@@ -1,0 +1,22 @@
+{
+  "prod-rollup-a": {
+    "chain_id": 11113,
+    "deployment_block": 481598,
+    "timestamp": "2025-10-28T13:29:16Z",
+    "contracts": {
+      "Kernel": "0x317A2D4564778A585BAd21376dC1ca65b75ccC6a",
+      "KernelFactory": "0xdEF4343958B5dE047bddEFaB5Fa8F9Ff898890e5",
+      "MultiChainValidator": "0x8aB3f6935399e1c10419cA2C93d60901a256b7e3"
+    }
+  },
+  "prod-rollup-b": {
+    "chain_id": 22224,
+    "deployment_block": 481608,
+    "timestamp": "2025-10-28T13:29:16Z",
+    "contracts": {
+      "Kernel": "0x317A2D4564778A585BAd21376dC1ca65b75ccC6a",
+      "KernelFactory": "0xdEF4343958B5dE047bddEFaB5Fa8F9Ff898890e5",
+      "MultiChainValidator": "0x8aB3f6935399e1c10419cA2C93d60901a256b7e3"
+    }
+  }
+}
