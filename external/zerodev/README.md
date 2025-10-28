@@ -58,6 +58,8 @@ explorer_api_url = "https://explorer.yourchain.com/api/"
 entrypoint = "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
 ```
 
+**Note**: The entrypoint address is the same for all chains. For op-based chains, it is deployed in the set of [preinstalls](https://specs.optimism.io/protocol/preinstalls.html).
+
 See [MULTI_CHAIN_DEPLOYMENT.md](docs/MULTI_CHAIN_DEPLOYMENT.md) for detailed configuration guide.
 
 ### 4. Build Contracts

@@ -135,7 +135,7 @@ show-deployments:
         exit 1
     fi
     echo "=== Deployment Addresses ==="
-    cat deployments.json | jq -r 'to_entries[] | "\n\u001b[1;34m\(.key)\u001b[0m (Chain ID: \(.value.chain_id)):\n  Kernel:             \(.value.Kernel)\n  KernelFactory:      \(.value.KernelFactory)\n  MultiChainValidator: \(.value.MultiChainValidator)\n  Deployed:           \(.value.deployed_at)"'
+    cat deployments.json | jq -r 'to_entries[] | "\n\u001b[1;34m\(.key)\u001b[0m (Chain ID: \(.value.chain_id)):\n  Kernel:             \(.value.contracts.Kernel)\n  KernelFactory:      \(.value.contracts.KernelFactory)\n  MultiChainValidator: \(.value.contracts.MultiChainValidator)\n  Block:              \(.value.deployment_block)\n  Timestamp:          \(.value.timestamp)"'
 
 # Get deployment addresses for a specific network
 get-deployment NETWORK:
@@ -168,7 +168,9 @@ deploy-network NETWORK:
     
     # Save to deployments.json
     if [ -n "$KERNEL_ADDR" ] && [ -n "$FACTORY_ADDR" ] && [ -n "$VALIDATOR_ADDR" ]; then
-        ./scripts/save-deployment.sh "{{NETWORK}}" "$KERNEL_ADDR" "$FACTORY_ADDR" "$VALIDATOR_ADDR" "$NETWORK_CHAIN_ID"
+        # Get current block number from RPC
+        BLOCK_NUMBER=$(cast block-number --rpc-url "$NETWORK_RPC_URL" 2>/dev/null || echo "0")
+        ./scripts/save-deployment.sh "{{NETWORK}}" "$KERNEL_ADDR" "$FACTORY_ADDR" "$VALIDATOR_ADDR" "$NETWORK_CHAIN_ID" "$BLOCK_NUMBER"
     else
         echo "Warning: Could not extract all addresses, skipping save to deployments.json"
     fi
