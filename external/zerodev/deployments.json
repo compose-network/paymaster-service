@@ -1,22 +1,22 @@
 {
   "prod-rollup-a": {
     "chain_id": 11113,
-    "deployment_block": 264614,
-    "timestamp": "2025-10-23T11:56:30Z",
+    "deployment_block": 481598,
+    "timestamp": "2025-10-28T13:29:16Z",
     "contracts": {
-      "Kernel": "0x2d1a201b876C5F9014a29046aC109870c38c0987",
-      "KernelFactory": "0x24aB828cd581cC1F83901F8E85A2C35F1E93b1db",
-      "MultiChainValidator": "0x60AF22eD3184E814de51c0A6c479E6BBd0a4fF04"
+      "Kernel": "0x317A2D4564778A585BAd21376dC1ca65b75ccC6a",
+      "KernelFactory": "0xdEF4343958B5dE047bddEFaB5Fa8F9Ff898890e5",
+      "MultiChainValidator": "0x8aB3f6935399e1c10419cA2C93d60901a256b7e3"
     }
   },
   "prod-rollup-b": {
     "chain_id": 22224,
-    "deployment_block": 264633,
-    "timestamp": "2025-10-23T11:57:07Z",
+    "deployment_block": 481608,
+    "timestamp": "2025-10-28T13:29:16Z",
     "contracts": {
-      "Kernel": "0x437d6502332c91EC083D917Ff847245c8B61F262",
-      "KernelFactory": "0x718ED067568Ce68376D8dEf0Ebf477D8c03b5343",
-      "MultiChainValidator": "0xd458aA10fcF6b2BD8a92617330ff35D02a233B17"
+      "Kernel": "0x317A2D4564778A585BAd21376dC1ca65b75ccC6a",
+      "KernelFactory": "0xdEF4343958B5dE047bddEFaB5Fa8F9Ff898890e5",
+      "MultiChainValidator": "0x8aB3f6935399e1c10419cA2C93d60901a256b7e3"
     }
   }
 }
